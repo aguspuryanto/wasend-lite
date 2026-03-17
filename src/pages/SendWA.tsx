@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { sendMessage } from '../lib/api';
-import { Send, Users, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Send, Users, AlertCircle, CheckCircle2, ChevronDown } from 'lucide-react';
 
 export default function SendWA() {
   const { baseUrl, apiKey, broadcastLists, addReport } = useAppContext();
@@ -12,6 +12,46 @@ export default function SendWA() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{ current: number, total: number } | null>(null);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [recipientError, setRecipientError] = useState<string>('');
+  const [isOpen, setIsOpen] = useState(false);
+  const [inputValue, setInputValue] = useState('');
+  const autocompleteRef = useRef<HTMLDivElement>(null);
+
+  // Combine all contacts from broadcast lists for the autocomplete
+  const allContacts = useMemo(() => {
+    const contacts: { id: string; label: string; phone: string; listName: string }[] = [];
+    broadcastLists.forEach(list => {
+      list.contacts.forEach(contact => {
+        contacts.push({
+          id: `${contact.id}-${list.id}`,
+          label: `${contact.name} (${contact.phone})`,
+          phone: contact.phone,
+          listName: list.name
+        });
+      });
+    });
+    return contacts;
+  }, [broadcastLists]);
+
+  const filteredContacts = useMemo(() => {
+    if (inputValue.length < 4) return [];
+    return allContacts.filter(option =>
+      option.phone.includes(inputValue) ||
+      option.label.toLowerCase().includes(inputValue.toLowerCase())
+    );
+  }, [inputValue, allContacts]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (autocompleteRef.current && !autocompleteRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,6 +137,54 @@ export default function SendWA() {
     }
   };
 
+  const handleRecipientChange = (value: string) => {
+    setInputValue(value);
+    setRecipient(value);
+    setRecipientError('');
+    
+    if (value.length > 0 && value.length < 4) {
+      setRecipientError('Recipient must be at least 4 characters long');
+      return;
+    }
+    
+    if (value.length >= 4) {
+      const matchedContacts: { contact: any, listName: string }[] = [];
+      
+      broadcastLists.forEach(list => {
+        const foundContacts = list.contacts.filter(contact => 
+          contact.phone.includes(value)
+        );
+        foundContacts.forEach(contact => {
+          matchedContacts.push({ contact, listName: list.name });
+        });
+      });
+      
+      // if (matchedContacts.length > 0) {
+      //   const contactNames = matchedContacts.map(mc => `${mc.contact.name} (${mc.listName})`).join(', ');
+      //   setRecipientError(`Found ${matchedContacts.length} contact(s): ${contactNames}`);
+      // }
+    }
+  };
+
+  const handleAutocompleteSelect = (contact: any) => {
+    setRecipient(contact.phone);
+    setInputValue(contact.label);
+    setRecipientError('');
+    setIsOpen(false);
+  };
+
+  const handleInputFocus = () => {
+    if (inputValue.length >= 4) {
+      setIsOpen(true);
+    }
+  };
+
+  const handleInputClick = () => {
+    if (inputValue.length >= 4) {
+      setIsOpen(!isOpen);
+    }
+  };
+
   return (
     <div className="max-w-3xl mx-auto">
       <div className="bg-white shadow rounded-xl overflow-hidden">
@@ -133,16 +221,65 @@ export default function SendWA() {
           <form onSubmit={handleSend} className="space-y-6">
             {type === 'single' ? (
               <div>
-                <label className="block text-sm font-medium text-gray-700">Recipient Number</label>
-                <input
-                  type="text"
-                  required
-                  value={recipient}
-                  onChange={(e) => setRecipient(e.target.value)}
-                  placeholder="e.g., 6281234567890"
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border py-2 px-3"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-2">Recipient Number</label>
+                <div className="relative" ref={autocompleteRef}>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      value={inputValue}
+                      onChange={(e) => handleRecipientChange(e.target.value)}
+                      onFocus={handleInputFocus}
+                      onClick={handleInputClick}
+                      placeholder="e.g., 6281234567890"
+                      className={`w-full rounded-md shadow-sm sm:text-sm border py-2 px-3 pr-10 focus:ring-indigo-500 ${
+                        recipientError && recipientError.includes('must be at least 4')
+                          ? 'border-red-300 focus:border-red-500'
+                          : recipientError && recipientError.includes('Found')
+                          ? 'border-green-300 focus:border-green-500'
+                          : 'border-gray-300 focus:border-indigo-500'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleInputClick}
+                      className="absolute inset-y-0 right-0 flex items-center rounded-r-md px-2 focus:outline-none"
+                    >
+                      <ChevronDown className="h-5 w-5 text-gray-400" aria-hidden="true" />
+                    </button>
+                  </div>
+                  
+                  {isOpen && filteredContacts.length > 0 && (
+                    <div className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
+                      {filteredContacts.map((contact) => (
+                        <div
+                          key={contact.id}
+                          onClick={() => handleAutocompleteSelect(contact)}
+                          className="relative cursor-default select-none py-2 pl-3 pr-9 text-gray-900 hover:bg-indigo-600 hover:text-white"
+                        >
+                          <div className="flex flex-col">
+                            <div className="block truncate font-medium">
+                              {contact.label}
+                            </div>
+                            <div className="block truncate text-sm text-gray-500 hover:text-indigo-200">
+                              {contact.listName}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <p className="mt-1 text-xs text-gray-500">Include country code without + (e.g., 62 for Indonesia)</p>
+                {recipientError && (
+                  <p className={`mt-1 text-xs ${
+                    recipientError.includes('must be at least 4')
+                      ? 'text-red-500'
+                      : 'text-green-600'
+                  }`}>
+                    {recipientError}
+                  </p>
+                )}
               </div>
             ) : (
               <div>
