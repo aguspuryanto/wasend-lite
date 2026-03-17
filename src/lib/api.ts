@@ -10,6 +10,8 @@ export const createApiClient = (baseURL: string, apiKey: string) => {
   });
 };
 
+// https://wa.kitabill.site/docs#sessions
+
 export const testConnection = async (baseURL: string, apiKey: string) => {
   try {
     const client = createApiClient(baseURL, apiKey);
@@ -30,10 +32,8 @@ export const sendMessage = async (baseURL: string, apiKey: string, to: string, m
   try {
     const client = createApiClient(baseURL, apiKey);
     // Assuming endpoint is /send-message or /message/send
-    const response = await client.post('/send-message', {
-      phone: to,
-      message: message,
-    });
+    // https://wa.kitabill.site/api/sendWA?to=[number]&msg=[text]&secret=f121e993727de6035bf2bc82fd289272
+    const response = await client.get(`/sendWA?to=${to}&msg=${message}&secret=${apiKey}`);
     return { success: true, data: response.data };
   } catch (error: any) {
     return { 
